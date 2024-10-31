@@ -1,0 +1,4 @@
+- Forward diff, backward diff, central diff -> to calculate gradients for normals
+
+- Calculator filter :- combine components to build the vector field
+- Paraview task: Upload trace as python - Tools > Start Trace/Stop Trace
