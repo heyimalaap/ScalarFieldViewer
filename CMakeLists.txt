@@ -32,6 +32,7 @@ add_executable(
     Slicer/ArcballCamera.cpp
     Slicer/ShaderProgram.cpp
     Slicer/Texture.cpp
+    Slicer/WireframeBoundingBox.cpp
 )
 target_link_libraries(Slicer PRIVATE glfw GLEW::GLEW glm::glm-header-only imgui::imgui)
 target_link_libraries(Slicer PUBLIC VTKParser)
