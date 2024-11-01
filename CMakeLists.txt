@@ -40,3 +40,18 @@ target_include_directories(
     Slicer PUBLIC
     "${PROJECT_SOURCE_DIR}/VTKParser"
 )
+
+add_executable(
+    Isosurface
+    Isosurface/main.cpp
+    Isosurface/ArcballCamera.cpp
+    Isosurface/ShaderProgram.cpp
+    Isosurface/Texture.cpp
+    Isosurface/WireframeBoundingBox.cpp
+)
+target_link_libraries(Isosurface PRIVATE glfw GLEW::GLEW glm::glm-header-only imgui::imgui)
+target_link_libraries(Isosurface PUBLIC VTKParser)
+target_include_directories(
+    Isosurface PUBLIC
+    "${PROJECT_SOURCE_DIR}/VTKParser"
+)
