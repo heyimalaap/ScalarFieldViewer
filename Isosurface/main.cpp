@@ -1,5 +1,6 @@
 #include "ArcballCamera.h"
 #include "MarchingCubes.h"
+#include "MarchingCubesLUT.h"
 #include "ShaderProgram.h"
 #include "WireframeBoundingBox.h"
 #include <GL/gl.h>
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <glm/common.hpp>
 #include <glm/ext/matrix_transform.hpp>
+#include <glm/fwd.hpp>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -31,6 +33,7 @@ bool mouse_lbtn_pressed = false;
 ArcballCamera camera(15.0f);
 ShaderProgram wireframe_shader;
 ShaderProgram phong_shader;
+ShaderProgram marching_cube_shader;
 VTKData data;
 float isovalue = 1.0f;
 
@@ -134,6 +137,7 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 }
 
 GLuint vert_VBO, normal_VBO, VAO, tricount;
+GLuint gs_VBO, gs_VAO;
 
 void create_isosurface()
 {
@@ -153,6 +157,93 @@ void create_isosurface()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+GLuint fieldTextureID;
+GLuint normalTextureID;
+GLuint edgeTableTextureID;
+GLuint triTableTextureID;
+
+void create_gs_textures()
+{
+    auto gradients = MarchingCubes::compute_gradient(data.fields[0]);
+    std::vector<glm::vec3> grad_texture_data;
+    for (int k = 0; k < data.dimension.z; k++) {
+        for (int j = 0; j < data.dimension.y; j++) {
+            for (int i = 0; i < data.dimension.x; i++) {
+                grad_texture_data.push_back(gradients[i][j][k]);
+            }
+        }
+    }
+
+    std::vector<float> fieldData;
+    for (int k = 0; k < data.dimension.z; k++) {
+        for (int j = 0; j < data.dimension.y; j++) {
+            for (int i = 0; i < data.dimension.x; i++) {
+                fieldData.push_back(data.fields[0](i, j, k));
+            }
+        }
+    }
+
+    glGenTextures(1, &fieldTextureID);
+    glBindTexture(GL_TEXTURE_3D, fieldTextureID);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, data.dimension.x, data.dimension.y, data.dimension.z, 0, GL_RED, GL_FLOAT, fieldData.data());
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    glGenTextures(1, &normalTextureID);
+    glBindTexture(GL_TEXTURE_3D, normalTextureID);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB32F, data.dimension.x, data.dimension.y, data.dimension.z, 0, GL_RGB, GL_FLOAT, grad_texture_data.data());
+    glBindTexture(GL_TEXTURE_3D, 0);
+
+    // Upload the edge table texture
+    glGenTextures(1, &edgeTableTextureID);
+    glBindTexture(GL_TEXTURE_2D, edgeTableTextureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I , 256, 1, 0, GL_RED_INTEGER, GL_INT, &EDGE_TBL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Upload the triangle table texture
+    glGenTextures(1, &triTableTextureID);
+    glBindTexture(GL_TEXTURE_2D, triTableTextureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, 16, 256, 0, GL_RED_INTEGER, GL_INT, &TRI_TBL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+}
+
+void create_gs_lattice()
+{
+    std::vector<glm::vec3> lattice;
+    for (int i = 0; i < data.dimension.x - 1; i++) {
+        for (int j = 0; j < data.dimension.y - 1; j++) {
+            for (int k = 0; k < data.dimension.z - 1; k++) {
+                lattice.push_back(glm::vec3(i, j, k));
+            }
+        }
+    }
+
+    glBindVertexArray(gs_VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, gs_VBO);
+    glBufferData(GL_ARRAY_BUFFER, lattice.size() * sizeof(glm::ivec3), lattice.data(), GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void setup()
 {
     data = VTKParser::from_file("data/redseasmall.vtk");
@@ -164,6 +255,12 @@ void setup()
     glGenBuffers(1, &normal_VBO);
 
     create_isosurface();
+
+    glGenVertexArrays(1, &gs_VAO);
+    glGenBuffers(1, &gs_VBO);
+
+    create_gs_lattice();
+    create_gs_textures();
 
     std::cout << "Dimensions: [" 
         << data.dimension.x * data.spacing.x << ", "
@@ -186,7 +283,15 @@ void setup()
             "Isosurface/Shaders/Phong.vert",
             "Isosurface/Shaders/Phong.frag"
         );
+
+    marching_cube_shader = ShaderProgram::from_files(
+            "Isosurface/Shaders/MarchingCubes.vert",
+            "Isosurface/Shaders/MarchingCubes.frag",
+            "Isosurface/Shaders/MarchingCubes.geom"
+        );
+
     set_projection_matrix(WINDOW_WIDTH, WINDOW_HEIGHT);
+
 }
 
 void draw()
@@ -205,16 +310,45 @@ void draw()
     bounding_box->draw();
 
     // render the isosurface
+    // auto view_pos = camera.position();
+    // phong_shader.use();
+    // model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
+    // phong_shader.set("model", model);
+    // phong_shader.set("view", view);
+    // phong_shader.set("projection", projection);
+    // phong_shader.set("viewPos", view_pos);
+    // glBindVertexArray(VAO);
+    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    // glDrawArrays(GL_TRIANGLES, 0, tricount);
+    
     auto view_pos = camera.position();
-    phong_shader.use();
+    auto dim_vec = glm::vec3(data.dimension.x, data.dimension.y, data.dimension.z);
+    auto spacing_vec = glm::vec3(data.spacing.x, data.spacing.y, data.spacing.z);
+    model = glm::mat4(1.0f);
+    marching_cube_shader.use();
     model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
-    phong_shader.set("model", model);
-    phong_shader.set("view", view);
-    phong_shader.set("projection", projection);
-    phong_shader.set("viewPos", view_pos);
-    glBindVertexArray(VAO);
+    marching_cube_shader.set("model", model);
+    marching_cube_shader.set("view", view);
+    marching_cube_shader.set("projection", projection);
+    marching_cube_shader.set("viewPos", view_pos);
+    marching_cube_shader.set("dimension", dim_vec);
+    marching_cube_shader.set("spacing", spacing_vec);
+    marching_cube_shader.set("isovalue", isovalue);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_3D, fieldTextureID);
+    marching_cube_shader.set("fieldSampler", 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_3D, normalTextureID);
+    marching_cube_shader.set("normalSampler", 1);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, edgeTableTextureID);
+    marching_cube_shader.set("edgeTableSampler", 2);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, triTableTextureID);
+    marching_cube_shader.set("triTableSampler", 3);
+    glBindVertexArray(gs_VAO);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glDrawArrays(GL_TRIANGLES, 0, tricount);
+    glDrawArrays(GL_POINTS, 0, data.dimension.x * data.dimension.y * data.dimension.z);
 }
 
 int main(int, char**) 
@@ -276,7 +410,7 @@ int main(int, char**)
         {
             ImGui::Begin("Isovalue");
             if(ImGui::SliderFloat("Isovalue", &isovalue, data.fields[0].min_val(), data.fields[0].max_val())) {
-                create_isosurface();
+                // create_isosurface();
             }
             ImGui::End(); 
         }

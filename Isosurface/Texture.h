@@ -21,7 +21,8 @@ public:
     Texture3D();
     Texture3D(GLuint id, int L, int W, int D);
 
-    static Texture3D from_data(VTKField<double> data, size_t width, size_t height, size_t depth);
+    static Texture3D from_data(VTKField<double> data, size_t width, size_t height, size_t depth, GLint filter = GL_LINEAR);
+    static Texture3D from_intarray(int* data, size_t width, size_t height, size_t depth);
     void bind();
     GLuint id() const;
     Dimension dimension() const;

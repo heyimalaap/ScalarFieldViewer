@@ -43,7 +43,7 @@ Texture3D::Texture3D() {}
 Texture3D::Texture3D(GLuint id, int L, int W, int D)
     : m_id(id), m_L(L), m_W(W), m_D(D) {}
 
-Texture3D Texture3D::from_data(VTKField<double> data, size_t width, size_t height, size_t depth)
+Texture3D Texture3D::from_data(VTKField<double> data, size_t width, size_t height, size_t depth, GLint filter)
 {
     std::vector<float> fdata;
     for (size_t z = 0; z < depth; z++)
@@ -72,6 +72,10 @@ Texture3D Texture3D::from_data(VTKField<double> data, size_t width, size_t heigh
     glBindTexture(GL_TEXTURE_3D, 0);
 
     return Texture3D(id, width, height, depth);
+}
+
+Texture3D Texture3D::from_intarray(int* data, size_t width, size_t height, size_t depth)
+{
 }
 
 void Texture3D::bind()

@@ -131,7 +131,7 @@ void MarchingCubes::triangulate_cell(std::vector<glm::vec3>& triangle_vertices, 
         }
     }
 
-    for (int i = 0; TRI_TBL[cube_index][i] != -1; i += 3) {
+    for (int i = 0; TRI_TBL[cube_index][i] != 16; i += 3) {
         triangle_vertices.push_back(vertices[TRI_TBL[cube_index][i]]);
         vertex_normals.push_back(normals[TRI_TBL[cube_index][i]]);
         triangle_vertices.push_back(vertices[TRI_TBL[cube_index][i + 1]]);
