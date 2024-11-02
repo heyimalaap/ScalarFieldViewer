@@ -177,7 +177,7 @@ void VTKParser::parse_field()
                     RUNTIME_VERIFY(m_data.dimension.x * m_data.dimension.y * m_data.dimension.z == sf_count);
                     RUNTIME_VERIFY(sf_type == "double");
 
-                    VTKField<double> new_field(sf_name, m_data.dimension);
+                    VTKField<double> new_field(sf_name, m_data.dimension, m_data.spacing);
                     for (int j = 0; j < sf_count; j++) {
                         std::string data_line;
                         if (!get_line(data_line)) {

@@ -16,6 +16,7 @@ template<typename T>
 struct VTKField {
     std::string name;
     Dimension dimension;
+    Spacing spacing;
     std::vector<T> data;
     T min, max;
 
@@ -38,12 +39,12 @@ struct VTKField {
         return max;
     }
 
-    VTKField(std::string& name, Dimension d);
+    VTKField(std::string& name, Dimension d, Spacing s);
 };
 
 template<typename T>
-VTKField<T>::VTKField(std::string& a_name, Dimension d)
-    : name(a_name), data(d.x * d.y * d.z), dimension(d) {}
+VTKField<T>::VTKField(std::string& a_name, Dimension d, Spacing s)
+    : name(a_name), data(d.x * d.y * d.z), dimension(d), spacing(s) {}
 
 struct VTKData {
     std::string version;

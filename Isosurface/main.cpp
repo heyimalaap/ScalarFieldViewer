@@ -1,10 +1,12 @@
 #include "ArcballCamera.h"
+#include "MarchingCubes.h"
 #include "ShaderProgram.h"
 #include "WireframeBoundingBox.h"
 #include <GL/gl.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <cmath>
+#include <glm/common.hpp>
 #include <glm/ext/matrix_transform.hpp>
 #include <iostream>
 #include <memory>
@@ -28,15 +30,16 @@ constexpr char* WINDOW_TITLE = (char* const)"ASSIGNMENT 2";
 bool mouse_lbtn_pressed = false;
 ArcballCamera camera(15.0f);
 ShaderProgram wireframe_shader;
-ShaderProgram sliceplane_shader;
-ShaderProgram sliceplanetex_shader;
+ShaderProgram phong_shader;
 VTKData data;
+float isovalue = 1.0f;
 
 glm::mat4 model = glm::mat4(1.0f);
 glm::mat4 view = glm::mat4(1.0f);
 glm::mat4 projection = glm::mat4(1.0f);
 
 std::unique_ptr<WireframeBoundingBox> bounding_box;
+
 
 void calculateFPS(GLFWwindow* window) 
 {
@@ -130,9 +133,38 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     }
 }
 
+GLuint vert_VBO, normal_VBO, VAO, tricount;
+
+void create_isosurface()
+{
+    auto [tris, normals] = MarchingCubes::triangulate_field(data.fields[0], isovalue);
+    tricount = tris.size();
+
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, vert_VBO);
+    glBufferData(GL_ARRAY_BUFFER, tris.size() * sizeof(glm::vec3), tris.data(), GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, normal_VBO);
+    glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(glm::vec3), normals.data(), GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 void setup()
 {
     data = VTKParser::from_file("data/redseasmall.vtk");
+
+
+    // upload the vertices to the GPU
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &vert_VBO);
+    glGenBuffers(1, &normal_VBO);
+
+    create_isosurface();
+
     std::cout << "Dimensions: [" 
         << data.dimension.x * data.spacing.x << ", "
         << data.dimension.y * data.spacing.y << ", "
@@ -146,15 +178,23 @@ void setup()
     bounding_box = std::make_unique<WireframeBoundingBox>(L, H, W);
 
     wireframe_shader = ShaderProgram::from_files(
-            "Slicer/Shaders/Wireframe.vert",
-            "Slicer/Shaders/Wireframe.frag"
+            "Isosurface/Shaders/Wireframe.vert",
+            "Isosurface/Shaders/Wireframe.frag"
         );
 
+    phong_shader = ShaderProgram::from_files(
+            "Isosurface/Shaders/Phong.vert",
+            "Isosurface/Shaders/Phong.frag"
+        );
     set_projection_matrix(WINDOW_WIDTH, WINDOW_HEIGHT);
 }
 
 void draw()
 {
+    float L = data.dimension.x * data.spacing.x;
+    float H = data.dimension.y * data.spacing.y;
+    float W = data.dimension.z * data.spacing.z;
+
     view = camera.getViewMatrix();
 
     wireframe_shader.use();
@@ -163,6 +203,18 @@ void draw()
     wireframe_shader.set("view", view);
     wireframe_shader.set("projection", projection);
     bounding_box->draw();
+
+    // render the isosurface
+    auto view_pos = camera.position();
+    phong_shader.use();
+    model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
+    phong_shader.set("model", model);
+    phong_shader.set("view", view);
+    phong_shader.set("projection", projection);
+    phong_shader.set("viewPos", view_pos);
+    glBindVertexArray(VAO);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glDrawArrays(GL_TRIANGLES, 0, tricount);
 }
 
 int main(int, char**) 
@@ -217,13 +269,22 @@ int main(int, char**)
         glClearColor(0.3, 0.3, 0.3, 1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        //ImGui_ImplOpenGL3_NewFrame();
-        //ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+
+        {
+            ImGui::Begin("Isovalue");
+            if(ImGui::SliderFloat("Isovalue", &isovalue, data.fields[0].min_val(), data.fields[0].max_val())) {
+                create_isosurface();
+            }
+            ImGui::End(); 
+        }
 
         draw();
 
-        // ImGui::Render();
-        // ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        ImGui::Render();
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
         calculateFPS(window);

@@ -10,6 +10,7 @@ public:
     void mouseMove(float X, float Y);
     void mouseScroll(float deltaS);
     void reloadTrigger();
+    glm::vec3 position();
 
 private:
     void recomputePosition();

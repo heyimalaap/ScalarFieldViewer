@@ -48,6 +48,8 @@ add_executable(
     Isosurface/ShaderProgram.cpp
     Isosurface/Texture.cpp
     Isosurface/WireframeBoundingBox.cpp
+    Isosurface/MarchingCubesLUT.cpp
+    Isosurface/MarchingCubes.cpp
 )
 target_link_libraries(Isosurface PRIVATE glfw GLEW::GLEW glm::glm-header-only imgui::imgui)
 target_link_libraries(Isosurface PUBLIC VTKParser)

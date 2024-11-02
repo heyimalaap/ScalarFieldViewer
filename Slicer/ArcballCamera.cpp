@@ -54,6 +54,11 @@ void ArcballCamera::reloadTrigger()
     m_trigger = true;
 }
 
+glm::vec3 ArcballCamera::position()
+{
+    return m_position;
+}
+
 void ArcballCamera::recomputePosition()
 {
     m_position.x = m_radius * cos(glm::radians(m_phi)) * sin(glm::radians(m_theta));
