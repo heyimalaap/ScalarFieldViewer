@@ -22,6 +22,11 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+enum class RenderMode {
+    CPU = 0,
+    GPU = 1
+};
+
 class SlicingPlane;
 class SlicingPlaneGPU;
 
@@ -42,6 +47,9 @@ VTKData data;
 enum class SlicePlaneType {
     XY = 0, YZ = 1, XZ = 2
 } slice_plane = SlicePlaneType::XY;
+RenderMode render_mode = RenderMode::CPU;
+int selected_field = 0;
+float plane_ratio = 0.5f;
 
 glm::mat4 model = glm::mat4(1.0f);
 glm::mat4 view = glm::mat4(1.0f);
@@ -558,6 +566,17 @@ void mouse_scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     }
 }
 
+void create_stuff() {
+    slicing_plane->setColorData(data.fields[selected_field]);
+    color_map = Texture1D::from_colormap(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f,0.0f, 0.0f));
+    data_tex = Texture3D::from_data(
+            data.fields[selected_field],
+            data.dimension.x,
+            data.dimension.y,
+            data.dimension.z
+        );
+}
+
 void setup()
 {
     data = VTKParser::from_file("data/redseasmall.vtk");
@@ -574,7 +593,7 @@ void setup()
     bounding_box = std::make_unique<WireframeBoundingBox>(L, H, W);
 
     slicing_plane = std::make_unique<SlicingPlane>(SlicePlaneType::XY, L, H, W);
-    slicing_plane->setColorData(data.fields[0]);
+    slicing_plane->setColorData(data.fields[selected_field]);
 
     slicing_plane_2 = std::make_unique<SlicingPlaneGPU>(SlicePlaneType::XY, L, H, W);
 
@@ -594,7 +613,7 @@ void setup()
     color_map = Texture1D::from_colormap(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f,0.0f, 0.0f));
 
     data_tex = Texture3D::from_data(
-            data.fields[0],
+            data.fields[selected_field],
             data.dimension.x,
             data.dimension.y,
             data.dimension.z
@@ -614,27 +633,29 @@ void draw()
     wireframe_shader.set("projection", projection);
     bounding_box->draw();
 
-    model = slicing_plane->getModelMatrix();
-    sliceplane_shader.use();
-    sliceplane_shader.set("model", model);
-    sliceplane_shader.set("view", view);
-    sliceplane_shader.set("projection", projection);
-    slicing_plane->draw();
-
-    sliceplanetex_shader.use();
-    color_map.bind();
-    data_tex.bind();
-    model = slicing_plane_2->getModelMatrix();
-    sliceplanetex_shader.set("model", model);
-    sliceplanetex_shader.set("view", view);
-    sliceplanetex_shader.set("projection", projection);
-    sliceplanetex_shader.set("t", slicing_plane_2->m_ratio);
-    sliceplanetex_shader.set("data_min", data.fields[0].min_val());
-    sliceplanetex_shader.set("data_max", data.fields[0].max_val());
-    sliceplanetex_shader.set("colourmapTexture", 0);
-    sliceplanetex_shader.set("dataTexture", 1);
-    sliceplanetex_shader.set("planeType", (int)slicing_plane_2->type());
-    slicing_plane_2->draw();
+    if (render_mode == RenderMode::CPU) {
+        model = slicing_plane->getModelMatrix();
+        sliceplane_shader.use();
+        sliceplane_shader.set("model", model);
+        sliceplane_shader.set("view", view);
+        sliceplane_shader.set("projection", projection);
+        slicing_plane->draw();
+    } else {
+        sliceplanetex_shader.use();
+        color_map.bind();
+        data_tex.bind();
+        model = slicing_plane_2->getModelMatrix();
+        sliceplanetex_shader.set("model", model);
+        sliceplanetex_shader.set("view", view);
+        sliceplanetex_shader.set("projection", projection);
+        sliceplanetex_shader.set("t", slicing_plane_2->m_ratio);
+        sliceplanetex_shader.set("data_min", data.fields[selected_field].min_val());
+        sliceplanetex_shader.set("data_max", data.fields[selected_field].max_val());
+        sliceplanetex_shader.set("colourmapTexture", 0);
+        sliceplanetex_shader.set("dataTexture", 1);
+        sliceplanetex_shader.set("planeType", (int)slicing_plane_2->type());
+        slicing_plane_2->draw();
+    }
 }
 
 int main(int, char**) 
@@ -684,6 +705,11 @@ int main(int, char**)
     float H = (data.dimension.y - 1) * data.spacing.y;
     float W = (data.dimension.z - 1) * data.spacing.z;
 
+    std::vector<std::string> field_names;
+    for (auto& field : data.fields) {
+        field_names.push_back(field.name);
+    }
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         glClearColor(0.3, 0.3, 0.3, 1.0);
@@ -693,37 +719,76 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("Render Mode")) {
+                if (ImGui::MenuItem("CPU", nullptr, render_mode == RenderMode::CPU)) {
+                    render_mode = RenderMode::CPU;
+                    slicing_plane->m_ratio = plane_ratio;
+                    create_stuff();
+                }
+                if (ImGui::MenuItem("GPU", nullptr, render_mode == RenderMode::GPU)) {
+                    render_mode = RenderMode::GPU;
+                    slicing_plane_2->m_ratio = plane_ratio;
+                    create_stuff();
+                }
+                ImGui::EndMenu();
+            }
+            
+            if (ImGui::BeginMenu("Fields")) {
+                for (int i = 0; i < field_names.size(); i++) {
+                    if (ImGui::MenuItem(field_names[i].c_str(), nullptr, selected_field == i)) {
+                        selected_field = i;
+                        create_stuff();
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMainMenuBar();
+        }
         {
             ImGui::Begin("Slicing");
 
             if(ImGui::RadioButton("XY", slicing_plane->type() == SlicePlaneType::XY)) {
                 slicing_plane = std::make_unique<SlicingPlane>(SlicePlaneType::XY, L, H, W);
-                slicing_plane->setColorData(data.fields[0]);
+                slicing_plane->setColorData(data.fields[selected_field]);
 
                 slicing_plane_2 = std::make_unique<SlicingPlaneGPU>(SlicePlaneType::XY, L, H, W);
+
+                slicing_plane->m_ratio = plane_ratio;
+                slicing_plane_2->m_ratio = plane_ratio;
             }
             ImGui::SameLine();
 
             if(ImGui::RadioButton("YZ", slicing_plane->type() == SlicePlaneType::YZ)) {
                 slicing_plane = std::make_unique<SlicingPlane>(SlicePlaneType::YZ, L, H, W);
-                slicing_plane->setColorData(data.fields[0]);
+                slicing_plane->setColorData(data.fields[selected_field]);
 
                 slicing_plane_2 = std::make_unique<SlicingPlaneGPU>(SlicePlaneType::YZ, L, H, W);
+
+                slicing_plane->m_ratio = plane_ratio;
+                slicing_plane_2->m_ratio = plane_ratio;
             }
             ImGui::SameLine();
 
             if(ImGui::RadioButton("XZ", slicing_plane->type() == SlicePlaneType::XZ)) {
                 slicing_plane = std::make_unique<SlicingPlane>(SlicePlaneType::XZ, L, H, W);
-                slicing_plane->setColorData(data.fields[0]);
+                slicing_plane->setColorData(data.fields[selected_field]);
 
                 slicing_plane_2 = std::make_unique<SlicingPlaneGPU>(SlicePlaneType::XZ, L, H, W);
+
+                slicing_plane->m_ratio = plane_ratio;
+                slicing_plane_2->m_ratio = plane_ratio;
             }
 
-            if(ImGui::SliderFloat("Ratio 1", &slicing_plane->m_ratio, 0.0f, 1.0f)) {
-                slicing_plane->setColorData(data.fields[0]);
+            if(ImGui::SliderFloat("t", &plane_ratio, 0.0f, 1.0f)) {
+                if (render_mode == RenderMode::CPU) {
+                    slicing_plane->m_ratio = plane_ratio;
+                    slicing_plane->setColorData(data.fields[selected_field]);
+                } else {
+                    slicing_plane_2->m_ratio = plane_ratio;
+                }
             }
-
-            ImGui::SliderFloat("Ratio 2", &slicing_plane_2->m_ratio, 0.0f, 1.0f);
 
             ImGui::End();
         }

@@ -52,7 +52,8 @@ Texture3D Texture3D::from_data(VTKField<double> data, size_t width, size_t heigh
         {
             for (size_t x = 0; x < width; x++)
             {
-                fdata.push_back(data(x, y, z));
+                float normalized = (data(x, y, z) - data.min_val()) / (data.max_val() - data.min_val());
+                fdata.push_back(normalized);
             }
         }
     }

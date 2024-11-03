@@ -22,6 +22,12 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+#include <string>
+
+enum class RenderMode {
+    CPU = 0,
+    GPU = 1
+};
 
 // Constants
 constexpr int WINDOW_WIDTH = 800;
@@ -36,6 +42,8 @@ ShaderProgram phong_shader;
 ShaderProgram marching_cube_shader;
 VTKData data;
 float isovalue = 1.0f;
+RenderMode render_mode = RenderMode::CPU;
+int selected_field = 0;
 
 glm::mat4 model = glm::mat4(1.0f);
 glm::mat4 view = glm::mat4(1.0f);
@@ -141,7 +149,7 @@ GLuint gs_VBO, gs_VAO;
 
 void create_isosurface()
 {
-    auto [tris, normals] = MarchingCubes::triangulate_field(data.fields[0], isovalue);
+    auto [tris, normals] = MarchingCubes::triangulate_field(data.fields[selected_field], isovalue);
     tricount = tris.size();
 
     glBindVertexArray(VAO);
@@ -164,7 +172,7 @@ GLuint triTableTextureID;
 
 void create_gs_textures()
 {
-    auto gradients = MarchingCubes::compute_gradient(data.fields[0]);
+    auto gradients = MarchingCubes::compute_gradient(data.fields[selected_field]);
     std::vector<glm::vec3> grad_texture_data;
     for (int k = 0; k < data.dimension.z; k++) {
         for (int j = 0; j < data.dimension.y; j++) {
@@ -178,7 +186,7 @@ void create_gs_textures()
     for (int k = 0; k < data.dimension.z; k++) {
         for (int j = 0; j < data.dimension.y; j++) {
             for (int i = 0; i < data.dimension.x; i++) {
-                fieldData.push_back(data.fields[0](i, j, k));
+                fieldData.push_back(data.fields[selected_field](i, j, k));
             }
         }
     }
@@ -242,6 +250,15 @@ void create_gs_lattice()
     glEnableVertexAttribArray(0);
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void create_stuff_for_current_field() 
+{
+    if (render_mode == RenderMode::CPU) {
+        create_isosurface();
+    } else {
+        create_gs_textures();
+    }
 }
 
 void setup()
@@ -309,46 +326,47 @@ void draw()
     wireframe_shader.set("projection", projection);
     bounding_box->draw();
 
-    // render the isosurface
-    // auto view_pos = camera.position();
-    // phong_shader.use();
-    // model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
-    // phong_shader.set("model", model);
-    // phong_shader.set("view", view);
-    // phong_shader.set("projection", projection);
-    // phong_shader.set("viewPos", view_pos);
-    // glBindVertexArray(VAO);
-    // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    // glDrawArrays(GL_TRIANGLES, 0, tricount);
-    
-    auto view_pos = camera.position();
-    auto dim_vec = glm::vec3(data.dimension.x, data.dimension.y, data.dimension.z);
-    auto spacing_vec = glm::vec3(data.spacing.x, data.spacing.y, data.spacing.z);
-    model = glm::mat4(1.0f);
-    marching_cube_shader.use();
-    model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
-    marching_cube_shader.set("model", model);
-    marching_cube_shader.set("view", view);
-    marching_cube_shader.set("projection", projection);
-    marching_cube_shader.set("viewPos", view_pos);
-    marching_cube_shader.set("dimension", dim_vec);
-    marching_cube_shader.set("spacing", spacing_vec);
-    marching_cube_shader.set("isovalue", isovalue);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_3D, fieldTextureID);
-    marching_cube_shader.set("fieldSampler", 0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_3D, normalTextureID);
-    marching_cube_shader.set("normalSampler", 1);
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, edgeTableTextureID);
-    marching_cube_shader.set("edgeTableSampler", 2);
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, triTableTextureID);
-    marching_cube_shader.set("triTableSampler", 3);
-    glBindVertexArray(gs_VAO);
-    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glDrawArrays(GL_POINTS, 0, data.dimension.x * data.dimension.y * data.dimension.z);
+    if (render_mode == RenderMode::CPU) {
+        auto view_pos = camera.position();
+        phong_shader.use();
+        model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
+        phong_shader.set("model", model);
+        phong_shader.set("view", view);
+        phong_shader.set("projection", projection);
+        phong_shader.set("viewPos", view_pos);
+        glBindVertexArray(VAO);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDrawArrays(GL_TRIANGLES, 0, tricount);
+    } else {
+        auto view_pos = camera.position();
+        auto dim_vec = glm::vec3(data.dimension.x, data.dimension.y, data.dimension.z);
+        auto spacing_vec = glm::vec3(data.spacing.x, data.spacing.y, data.spacing.z);
+        model = glm::mat4(1.0f);
+        marching_cube_shader.use();
+        model = glm::translate(glm::mat4(1.0f), glm::vec3(-L/2, -H/2, -W/2));
+        marching_cube_shader.set("model", model);
+        marching_cube_shader.set("view", view);
+        marching_cube_shader.set("projection", projection);
+        marching_cube_shader.set("viewPos", view_pos);
+        marching_cube_shader.set("dimension", dim_vec);
+        marching_cube_shader.set("spacing", spacing_vec);
+        marching_cube_shader.set("isovalue", isovalue);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, fieldTextureID);
+        marching_cube_shader.set("fieldSampler", 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, normalTextureID);
+        marching_cube_shader.set("normalSampler", 1);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, edgeTableTextureID);
+        marching_cube_shader.set("edgeTableSampler", 2);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, triTableTextureID);
+        marching_cube_shader.set("triTableSampler", 3);
+        glBindVertexArray(gs_VAO);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glDrawArrays(GL_POINTS, 0, data.dimension.x * data.dimension.y * data.dimension.z);
+    }
 }
 
 int main(int, char**) 
@@ -398,6 +416,11 @@ int main(int, char**)
     float H = (data.dimension.y - 1) * data.spacing.y;
     float W = (data.dimension.z - 1) * data.spacing.z;
 
+    std::vector<std::string> field_names;
+    for (auto& field : data.fields) {
+        field_names.push_back(field.name);
+    }
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         glClearColor(0.3, 0.3, 0.3, 1.0);
@@ -407,10 +430,38 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("Render Mode")) {
+                if (ImGui::MenuItem("CPU", nullptr, render_mode == RenderMode::CPU)) {
+                    render_mode = RenderMode::CPU;
+                    create_stuff_for_current_field();
+                }
+                if (ImGui::MenuItem("GPU", nullptr, render_mode == RenderMode::GPU)) {
+                    render_mode = RenderMode::GPU;
+                    create_stuff_for_current_field();
+                }
+                ImGui::EndMenu();
+            }
+            
+            if (ImGui::BeginMenu("Fields")) {
+                for (int i = 0; i < field_names.size(); i++) {
+                    if (ImGui::MenuItem(field_names[i].c_str(), nullptr, selected_field == i)) {
+                        selected_field = i;
+                        create_stuff_for_current_field();
+                    }
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::EndMainMenuBar();
+        }
+
         {
             ImGui::Begin("Isovalue");
-            if(ImGui::SliderFloat("Isovalue", &isovalue, data.fields[0].min_val(), data.fields[0].max_val())) {
-                // create_isosurface();
+            if(ImGui::SliderFloat("Isovalue", &isovalue, data.fields[selected_field].min_val(), data.fields[selected_field].max_val())) {
+                if (render_mode == RenderMode::CPU) {
+                    create_isosurface();
+                }
             }
             ImGui::End(); 
         }
